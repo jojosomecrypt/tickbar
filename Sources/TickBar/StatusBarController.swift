@@ -130,7 +130,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
 
             if c.barShowLogo, let img = store.logo(for: item) {
                 let att = NSTextAttachment()
-                att.image = img
+                att.image = circular(img, key: item.id)
                 att.bounds = CGRect(x: 0, y: -3, width: 14, height: 14)
                 s.append(NSAttributedString(attachment: att))
                 add(" ")
@@ -154,6 +154,21 @@ final class StatusBarController: NSObject, NSWindowDelegate {
             item.button?.attributedTitle = s
         }
         item.button?.toolTip = tooltip()
+    }
+
+    private var roundLogos: [String: NSImage] = [:]
+
+    /// Menu bar logos are masked to a circle so square token images match the round ones.
+    private func circular(_ img: NSImage, key: String) -> NSImage {
+        if let cached = roundLogos[key] { return cached }
+        let size = NSSize(width: 28, height: 28)
+        let out = NSImage(size: size, flipped: false) { rect in
+            NSBezierPath(ovalIn: rect).addClip()
+            img.draw(in: rect)
+            return true
+        }
+        roundLogos[key] = out
+        return out
     }
 
     private func tooltip() -> String {

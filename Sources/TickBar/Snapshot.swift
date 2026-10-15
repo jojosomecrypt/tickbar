@@ -26,6 +26,7 @@ enum Snapshot {
 
         // Mount the views early so their async work (logos, snapshots) can run, capture later.
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+            store.notificationsAllowed = nil // dev builds have no bundle id; keep the banner out of shots
             for tab in Tab.allCases {
                 let view = NSHostingView(rootView: PopoverView(tab: tab, expanded: expand).environment(store)
                     .background(Color(nsColor: NSColor(white: 0.17, alpha: 1))).preferredColorScheme(.dark))
