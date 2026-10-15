@@ -72,8 +72,12 @@ scripts/build_app.sh      # build dist/TickBar.app (universal) and dist/TickBar.
 To sign and notarize with an Apple Developer ID so the app opens without the security prompt:
 
 ```sh
-xcrun notarytool store-credentials tickbar --apple-id you@example.com --team-id TEAMID
-SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=tickbar scripts/build_app.sh
+xcrun notarytool store-credentials tickbar \
+  --apple-id you@example.com --team-id TEAMID
+
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE=tickbar \
+scripts/build_app.sh
 ```
 
 ## Data sources
