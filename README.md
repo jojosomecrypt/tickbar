@@ -43,8 +43,27 @@ Most menu bar tickers poll an aggregator like CoinGecko and run a minute or two 
 ## Install
 
 1. Download `TickBar.zip` from the [latest release](../../releases/latest), unzip it and drag **TickBar** into **Applications**.
-2. Open it. macOS will say it can't verify the app, because this build isn't signed with an Apple Developer ID. Click **Done**.
-3. Open **System Settings → Privacy & Security**, scroll down to the message about TickBar and click **Open Anyway**. You only need to do this once per version.
+2. Double-click TickBar. macOS will say *"Apple could not verify TickBar is free of malware"*. Click **Done** (not Move to Trash).
+3. Open **System Settings → Privacy & Security** and scroll down to the **Security** section. You'll see *"TickBar was blocked to protect your Mac"*. Click **Open Anyway**.
+4. Confirm with your Mac password or Touch ID, then click **Open Anyway** once more. TickBar appears in your menu bar.
+
+You only need to do this once per version. After that, TickBar opens normally.
+
+Prefer Terminal? This does steps 2 to 4 in one go:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/TickBar.app
+```
+
+### Why the warning?
+
+TickBar is a free, open-source side project. macOS shows this warning for any app that isn't signed through Apple's paid developer program, which costs US$99 a year. The warning means Apple hasn't reviewed the app. It doesn't mean anything was found wrong with it.
+
+Since every line of TickBar's code is public, you don't have to take that on trust:
+
+- **Read the code.** It's all in [`Sources/TickBar`](Sources/TickBar), about 2,500 lines of Swift.
+- **Check what it connects to.** Only the public market-data services listed under [Data sources](#data-sources). There's no account, no tracking and no server of its own.
+- **Build it yourself.** Follow [Build from source](#build-from-source) and run an app you compiled from the code you just read.
 
 To move TickBar in the menu bar, hold **⌘** and drag it. To start it automatically, turn on **Launch at login** in Settings.
 
