@@ -92,3 +92,7 @@ scripts/build_app.sh
 | SGD / EUR conversion | open.er-api.com, refreshed hourly |
 
 TickBar is not affiliated with Binance, DexScreener or GeckoTerminal. Prices are for information only and not financial advice.
+
+## License
+
+[MIT](LICENSE). Free to use, modify and share.

@@ -30,7 +30,17 @@ enum Fmt {
 
     static func price(_ p: Double, _ cur: DisplayCurrency, compact: Bool = false, decimals: Int? = nil) -> String {
         if let decimals { return cur.symbol + number(p, digits: decimals) }
+        if p > 0 && p < 1e-4 { return cur.symbol + tiny(p) }
         return cur.symbol + (compact ? short(p) : number(p, digits: digits(for: p)))
+    }
+
+    /// Sub-0.0001 prices in the usual crypto shorthand: 0.0000001014 → 0.0₆1014.
+    static func tiny(_ p: Double) -> String {
+        var zeros = Int(-floor(log10(p))) - 1
+        var sig = Int((p * pow(10, Double(zeros + 4))).rounded())
+        if sig >= 10_000 { sig /= 10; zeros -= 1 } // rounding carried into another digit
+        let sub = String(String(zeros).compactMap { "₀₁₂₃₄₅₆₇₈₉".map { $0 }[Int(String($0))!] })
+        return "0.0\(sub)\(sig)"
     }
 
     static func short(_ v: Double) -> String {
