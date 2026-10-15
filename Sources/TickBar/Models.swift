@@ -1,8 +1,8 @@
 import Foundation
 
 enum Market: String, Codable, CaseIterable {
-    case spot, perp
-    var label: String { self == .spot ? "Spot" : "Perp" }
+    case spot, perp, dex
+    var label: String { ["spot": "Spot", "perp": "Perp", "dex": "DEX"][rawValue]! }
 }
 
 /// A coin the user follows. Keyed by market + base asset so switching the quote
@@ -12,7 +12,20 @@ struct WatchItem: Codable, Hashable, Identifiable {
     var base: String
     var inMenuBar: Bool = false
     var holdings: Double = 0
-    var id: String { "\(market.rawValue):\(base)" }
+    /// Fixed decimal places for this coin's price; nil = automatic.
+    var decimals: Int?
+    // DEX tokens only (via DexScreener)
+    var chain: String?
+    var address: String?
+    var pair: String?
+    var dexName: String?
+    var name: String?
+    var logo: String?
+    var quoteSymbol: String?
+
+    var id: String {
+        market == .dex ? "dex:\(chain ?? ""):\((address ?? base).lowercased())" : "\(market.rawValue):\(base)"
+    }
 
     init(market: Market, base: String, inMenuBar: Bool = false, holdings: Double = 0) {
         self.market = market; self.base = base; self.inMenuBar = inMenuBar; self.holdings = holdings
@@ -25,6 +38,14 @@ struct WatchItem: Codable, Hashable, Identifiable {
         base = try c.decode(String.self, forKey: .base)
         inMenuBar = try c.decodeIfPresent(Bool.self, forKey: .inMenuBar) ?? false
         holdings = try c.decodeIfPresent(Double.self, forKey: .holdings) ?? 0
+        decimals = try c.decodeIfPresent(Int.self, forKey: .decimals)
+        chain = try c.decodeIfPresent(String.self, forKey: .chain)
+        address = try c.decodeIfPresent(String.self, forKey: .address)
+        pair = try c.decodeIfPresent(String.self, forKey: .pair)
+        dexName = try c.decodeIfPresent(String.self, forKey: .dexName)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        logo = try c.decodeIfPresent(String.self, forKey: .logo)
+        quoteSymbol = try c.decodeIfPresent(String.self, forKey: .quoteSymbol)
     }
 }
 

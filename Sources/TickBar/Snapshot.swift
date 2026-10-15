@@ -16,6 +16,13 @@ enum Snapshot {
             store.config = c
         }
         let expand = ProcessInfo.processInfo.environment["TICKBAR_EXPAND"]
+        if let addr = ProcessInfo.processInfo.environment["TICKBAR_DEX_ADD"] {
+            Task {
+                let found = (try? await DexAPI.lookup(address: addr)) ?? []
+                print("DEX LOOKUP:", found.map { "\($0.baseSymbol) \($0.dex)/\($0.chain) $\($0.price) vol \(Int($0.volume24))" })
+                if let p = found.first { store.addDex(p); store.edit(store.dexItem(p).id) { $0.inMenuBar = true } }
+            }
+        }
 
         // Mount the views early so their async work (logos, snapshots) can run, capture later.
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
@@ -51,6 +58,7 @@ enum Snapshot {
                     try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("tab-\(tab).png"))
                 }
             }
+            print("SERIES:", store.config.watchlist.map { "\($0.base) \(store.sparkline($0).count)pts" })
             print("HEALTH:", store.health, "TICKERS:", store.tickers.count, "CATALOG:", store.catalogCount, "LOGOS:", store.logos.count)
             NSApp.terminate(nil)
         }

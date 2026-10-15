@@ -48,7 +48,7 @@ struct SettingsView: View {
             }
 
             Section("Dropdown") {
-                Picker("Clicking a coin opens", selection: $store.config.chartSite) {
+                Picker("⌘-click a coin opens", selection: $store.config.chartSite) {
                     ForEach(ChartSite.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 Toggle("24h sparklines", isOn: $store.config.showSparklines)

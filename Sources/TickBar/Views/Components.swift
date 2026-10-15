@@ -3,10 +3,11 @@ import SwiftUI
 struct CoinLogo: View {
     @Environment(Store.self) private var store
     let base: String
+    var item: WatchItem? = nil
     var size: CGFloat = 18
 
     var body: some View {
-        if let img = store.logo(base) {
+        if let img = item.map(store.logo(for:)) ?? store.logo(base) {
             Image(nsImage: img).resizable().interpolation(.high).frame(width: size, height: size).clipShape(Circle())
         } else {
             Circle().fill(.quaternary)
@@ -41,11 +42,12 @@ struct MarketBadge: View {
     let market: Market
 
     var body: some View {
-        Text(market == .perp ? "PERP" : "SPOT")
+        let color: Color = switch market { case .perp: .orange; case .dex: .purple; case .spot: .secondary }
+        Text(market.label.uppercased())
             .font(.system(size: 8.5, weight: .bold))
             .padding(.horizontal, 4).padding(.vertical, 1)
-            .foregroundStyle(market == .perp ? Color.orange : Color.secondary)
-            .background((market == .perp ? Color.orange : Color.secondary).opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+            .foregroundStyle(color)
+            .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
     }
 }
 

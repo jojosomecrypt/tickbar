@@ -128,7 +128,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
                 flash = f.dir > 0 ? .systemGreen : .systemRed
             }
 
-            if c.barShowLogo, let img = store.logo(item.base) {
+            if c.barShowLogo, let img = store.logo(for: item) {
                 let att = NSTextAttachment()
                 att.image = img
                 att.bounds = CGRect(x: 0, y: -3, width: 14, height: 14)

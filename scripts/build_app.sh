@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds dist/TickBar.app (universal arm64 + x86_64) and dist/TickBar.zip.
 #
-#   scripts/build_app.sh                      ad-hoc signed (runs on this Mac; others must right-click > Open)
+#   scripts/build_app.sh                      ad-hoc signed (others: System Settings > Privacy & Security > Open Anyway)
 #   SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
 #   NOTARY_PROFILE=tickbar scripts/build_app.sh    Developer ID signed + notarized (opens cleanly anywhere)
 #
@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-1.1.0}"
 BUNDLE_ID="app.tickbar.TickBar"
 APP="dist/TickBar.app"
 

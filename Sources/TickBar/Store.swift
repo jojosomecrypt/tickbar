@@ -24,6 +24,9 @@ final class Store {
     private(set) var perp: [String: PerpStats] = [:]
     private(set) var candles: [String: [Candle]] = [:]
     private(set) var fx: [DisplayCurrency: Double] = [.usd: 1]
+    private(set) var dexInfo: [String: DexAPI.Pair] = [:]
+    /// TickBar's own 5-minute samples for DEX tokens, used when GeckoTerminal candles aren't available.
+    private(set) var dexHistory: [String: [Candle]] = [:]
     private(set) var clock = Date()
     var notificationsAllowed: Bool?
 
@@ -37,6 +40,7 @@ final class Store {
     @ObservationIgnored private var keyToItem: [String: String] = [:]
     @ObservationIgnored private var lastFullSnapshot: Date?
     @ObservationIgnored private var timers: [Timer] = []
+    @ObservationIgnored private var dexPolling = false
 
     private static let configKey = "config.v1"
     private static let supportDir: URL = {
@@ -67,11 +71,13 @@ final class Store {
         spotConn.onReconnect = { [weak self] in Task { await self?.snapshotWatched() } }
         perpConn.onReconnect = { [weak self] in Task { await self?.snapshotWatched() } }
         loadCachedCatalog()
+        loadDexHistory()
         rebuildSubscriptions()
         spotConn.connect()
         perpConn.connect()
 
         Task {
+            await pollDex()
             await snapshotWatched()
             await loadCatalog()
             await loadFX()
@@ -84,6 +90,9 @@ final class Store {
             },
             Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshCandles() }
+            },
+            Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in
+                Task { @MainActor in await self?.pollDex() }
             },
             Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
                 Task { @MainActor in
@@ -164,6 +173,9 @@ final class Store {
 
     /// Resolves a watch item to a tradable symbol, preferring the chosen quote and falling back to USDT.
     func instrument(for item: WatchItem) -> Instrument {
+        if item.market == .dex {
+            return Instrument(market: .dex, symbol: item.pair ?? item.base, base: item.base, quote: item.quoteSymbol ?? "USD")
+        }
         if let qs = byBase[item.market]?[item.base] {
             if let i = qs[config.quote] ?? qs["USDT"] ?? qs["USDC"] ?? qs["FDUSD"] { return i }
         }
@@ -171,7 +183,7 @@ final class Store {
     }
 
     func isListed(_ item: WatchItem) -> Bool {
-        byBase.isEmpty || byBase[item.market]?[item.base] != nil
+        item.market == .dex || byBase.isEmpty || byBase[item.market]?[item.base] != nil
     }
 
     /// Picker rows: one per (market, base) that trades against a USD stablecoin.
@@ -197,6 +209,27 @@ final class Store {
     }
 
     func name(_ base: String) -> String { assets[assetCode(base)]?.name ?? "" }
+
+    func displayName(_ item: WatchItem) -> String {
+        item.market == .dex ? (item.name ?? "") : name(item.base)
+    }
+
+    func logo(for item: WatchItem) -> NSImage? {
+        guard item.market == .dex else { return logo(item.base) }
+        let code = "dex-" + (item.address ?? item.base).lowercased()
+        if let img = logos[code] { return img }
+        if !logoLoading.contains(code), let s = item.logo, let url = URL(string: s) {
+            logoLoading.insert(code)
+            let file = Self.logoDir.appendingPathComponent("\(code).png")
+            Task {
+                if let img = NSImage(contentsOf: file) { self.logos[code] = img; return }
+                guard let (data, _) = try? await URLSession.shared.data(from: url), let img = NSImage(data: data) else { return }
+                try? data.write(to: file)
+                self.logos[code] = img
+            }
+        }
+        return nil
+    }
 
     func logo(_ base: String) -> NSImage? {
         let code = assetCode(base)
@@ -233,7 +266,9 @@ final class Store {
             let inst = instrument(for: item)
             map[inst.key] = item.id
             let l = inst.symbol.lowercased()
-            if inst.market == .spot {
+            if inst.market == .dex {
+                continue
+            } else if inst.market == .spot {
                 s.insert("\(l)@miniTicker")
             } else {
                 p.insert("\(l)@miniTicker")
@@ -288,7 +323,7 @@ final class Store {
     }
 
     func snapshotWatched() async {
-        let insts = config.watchlist.filter(isListed).map(instrument(for:))
+        let insts = config.watchlist.filter { $0.market != .dex && isListed($0) }.map(instrument(for:))
         let spot = insts.filter { $0.market == .spot }.map(\.symbol)
         let hasPerp = insts.contains { $0.market == .perp }
         async let s = try? BinanceAPI.spotTickers(spot)
@@ -313,9 +348,15 @@ final class Store {
         let now = Date()
         for item in config.watchlist where isListed(item) {
             let inst = instrument(for: item)
-            if let t = candleFetched[inst.key], now.timeIntervalSince(t) < 300 { continue }
+            let every: TimeInterval = item.market == .dex ? 900 : 300
+            if let t = candleFetched[inst.key], now.timeIntervalSince(t) < every { continue }
             candleFetched[inst.key] = now
             Task {
+                if item.market == .dex {
+                    let c = await DexAPI.candles(chain: item.chain ?? "", pool: inst.symbol)
+                    if !c.isEmpty { self.candles[inst.key] = c } // else keep fallback history; retry in 15 min
+                    return
+                }
                 if let c = try? await BinanceAPI.candles(inst), !c.isEmpty {
                     self.candles[inst.key] = c
                 } else {
@@ -351,7 +392,7 @@ final class Store {
 
     func priceText(_ item: WatchItem, compact: Bool = false) -> String {
         guard let t = ticker(item) else { return "–" }
-        return Fmt.price(t.price * fxRate, currency, compact: compact)
+        return Fmt.price(t.price * fxRate, currency, compact: compact, decimals: item.decimals)
     }
 
     func change(_ item: WatchItem, window: ChangeWindow? = nil) -> Double? {
@@ -362,11 +403,12 @@ final class Store {
         case .h24:
             ref = t.open24
         case .h1:
+            if inst.market == .dex, let c = dexInfo[inst.key]?.change1h { return c }
             let cutoff = Date().addingTimeInterval(-3600)
-            ref = candles[inst.key]?.first { $0.time >= cutoff }?.open
+            ref = series(inst.key).first { $0.time >= cutoff }?.open
         case .today:
             let midnight = Calendar.current.startOfDay(for: Date())
-            ref = candles[inst.key]?.first { $0.time >= midnight }?.open
+            ref = series(inst.key).first { $0.time >= midnight }?.open
         }
         guard let ref, ref > 0 else { return nil }
         return t.price / ref - 1
@@ -375,10 +417,15 @@ final class Store {
     func sparkline(_ item: WatchItem) -> [Double] {
         let inst = instrument(for: item)
         // 288 five-minute closes are too jagged at 60px; every 4th point = 20-minute resolution.
-        let closes = candles[inst.key]?.map(\.close) ?? []
+        let closes = series(inst.key).map(\.close)
         var v = stride(from: 0, to: closes.count, by: 4).map { closes[$0] }
         if let p = tickers[inst.key]?.price, !v.isEmpty { v.append(p) }
         return v
+    }
+
+    private func series(_ key: String) -> [Candle] {
+        if let c = candles[key], !c.isEmpty { return c }
+        return dexHistory[key] ?? []
     }
 
     func holdingsValue(_ item: WatchItem) -> Double? {
@@ -402,12 +449,16 @@ final class Store {
 
     func chartURL(_ item: WatchItem, site: ChartSite? = nil) -> URL {
         let i = instrument(for: item)
+        if i.market == .dex {
+            return URL(string: dexInfo[i.key]?.url ?? "https://dexscreener.com/\(item.chain ?? "")/\(i.symbol)")!
+        }
         let s: String
         switch (site ?? config.chartSite, i.market) {
         case (.binance, .spot): s = "https://www.binance.com/en/trade/\(i.base)_\(i.quote)?type=spot"
         case (.binance, .perp): s = "https://www.binance.com/en/futures/\(i.symbol)"
         case (.tradingview, .spot): s = "https://www.tradingview.com/chart/?symbol=BINANCE:\(i.symbol)"
         case (.tradingview, .perp): s = "https://www.tradingview.com/chart/?symbol=BINANCE:\(i.symbol).P"
+        case (_, .dex): s = "https://dexscreener.com"
         }
         return URL(string: s)!
     }
@@ -434,6 +485,77 @@ final class Store {
             let first = !config.watchlist.contains { $0.inMenuBar }
             config.watchlist.append(WatchItem(market: market, base: base, inMenuBar: first))
         }
+    }
+
+    func remove(_ id: String) {
+        config.watchlist.removeAll { $0.id == id }
+        config.alerts.removeAll { $0.itemID == id }
+    }
+
+    func dexItem(_ p: DexAPI.Pair) -> WatchItem {
+        var w = WatchItem(market: .dex, base: p.baseSymbol)
+        w.chain = p.chain; w.address = p.baseAddress; w.pair = p.pair; w.dexName = p.dex
+        w.name = p.baseName; w.logo = p.image; w.quoteSymbol = p.quoteSymbol
+        return w
+    }
+
+    func isWatched(_ id: String) -> Bool { config.watchlist.contains { $0.id == id } }
+
+    func addDex(_ p: DexAPI.Pair) {
+        let w = dexItem(p)
+        guard !isWatched(w.id) else { return }
+        dexInfo["dex:\(p.pair)"] = p
+        applyDex(p)
+        config.watchlist.append(w)
+    }
+
+    // MARK: - DEX polling
+
+    func pollDex() async {
+        guard !dexPolling else { return }
+        let items = config.watchlist.filter { $0.market == .dex && $0.pair != nil }
+        guard !items.isEmpty else { return }
+        dexPolling = true
+        defer { dexPolling = false }
+        for (chain, group) in Dictionary(grouping: items, by: { $0.chain ?? "" }) {
+            let pools = group.compactMap(\.pair)
+            for start in stride(from: 0, to: pools.count, by: 30) {
+                let batch = Array(pools[start..<min(start + 30, pools.count)])
+                guard let ps = try? await DexAPI.refresh(chain: chain, pairs: batch) else { continue }
+                ps.forEach(applyDex)
+            }
+        }
+    }
+
+    private func applyDex(_ p: DexAPI.Pair) {
+        let key = "dex:\(p.pair)"
+        dexInfo[key] = p
+        let open = p.change24h.map { p.price / (1 + $0) } ?? 0
+        update(key, Ticker(price: p.price, open24: open, high: 0, low: 0, quoteVolume: p.volume24, updated: Date()))
+        // Own 5-minute history, kept for 24h, so DEX sparklines work without a candle API.
+        var h = dexHistory[key] ?? []
+        if h.last.map({ Date().timeIntervalSince($0.time) >= 300 }) ?? true {
+            h.append(Candle(time: Date(), open: p.price, close: p.price))
+            h.removeAll { Date().timeIntervalSince($0.time) > 86_400 }
+            dexHistory[key] = h
+            saveDexHistory()
+        }
+    }
+
+    private var dexHistoryFile: URL { Self.supportDir.appendingPathComponent("dex-history.json") }
+
+    private struct StoredCandle: Codable { let t: Date; let p: Double }
+
+    private func loadDexHistory() {
+        guard let data = try? Data(contentsOf: dexHistoryFile),
+              let raw = try? JSONDecoder().decode([String: [StoredCandle]].self, from: data) else { return }
+        let cutoff = Date().addingTimeInterval(-86_400)
+        dexHistory = raw.mapValues { $0.filter { $0.t > cutoff }.map { Candle(time: $0.t, open: $0.p, close: $0.p) } }
+    }
+
+    private func saveDexHistory() {
+        let raw = dexHistory.mapValues { $0.map { StoredCandle(t: $0.time, p: $0.close) } }
+        if let data = try? JSONEncoder().encode(raw) { try? data.write(to: dexHistoryFile) }
     }
 
     func move(_ id: String, before target: String) {

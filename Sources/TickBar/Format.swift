@@ -28,8 +28,9 @@ enum Fmt {
         formatter(digits).string(from: NSNumber(value: v)) ?? "\(v)"
     }
 
-    static func price(_ p: Double, _ cur: DisplayCurrency, compact: Bool = false) -> String {
-        cur.symbol + (compact ? short(p) : number(p, digits: digits(for: p)))
+    static func price(_ p: Double, _ cur: DisplayCurrency, compact: Bool = false, decimals: Int? = nil) -> String {
+        if let decimals { return cur.symbol + number(p, digits: decimals) }
+        return cur.symbol + (compact ? short(p) : number(p, digits: digits(for: p)))
     }
 
     static func short(_ v: Double) -> String {

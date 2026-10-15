@@ -45,8 +45,8 @@ struct WatchlistView: View {
             }
 
             Text(store.config.sort == .custom
-                 ? "☑ shows a coin in the menu bar · drag ≡ to reorder · click to open chart"
-                 : "☑ shows a coin in the menu bar · switch to My order to drag")
+                 ? "☑ menu bar · drag ≡ to reorder · click for details · ⌘-click for chart"
+                 : "☑ menu bar · click for details · ⌘-click for chart")
                 .font(.system(size: 10.5)).foregroundStyle(.tertiary)
                 .padding(.vertical, 6)
         }
@@ -79,11 +79,11 @@ struct WatchRow: View {
                     .help("Show in menu bar")
 
                 HStack(spacing: 9) {
-                    CoinLogo(base: item.base, size: 22)
+                    CoinLogo(base: item.base, item: item, size: 22)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
                             Text(item.base).font(.system(size: 13, weight: .semibold))
-                            if item.market == .perp { MarketBadge(market: .perp) }
+                            if item.market != .spot { MarketBadge(market: item.market) }
                         }
                         Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -97,20 +97,22 @@ struct WatchRow: View {
                     }
                     .frame(minWidth: 84, alignment: .trailing)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { NSWorkspace.shared.open(store.chartURL(item)) }
-                .help("Open \(item.base) chart on \(store.config.chartSite.label)")
 
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) { expanded = isOpen ? nil : item.id }
-                } label: {
-                    Image(systemName: "chevron.down").rotationEffect(.degrees(isOpen ? 180 : 0))
-                        .frame(width: 16, height: 16).contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .help("Details, holdings and alerts")
+                Image(systemName: "chevron.down").rotationEffect(.degrees(isOpen ? 180 : 0))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
             }
             .padding(.horizontal, 12).padding(.vertical, 7)
+            .contentShape(Rectangle())
+            // Click anywhere on the row for details; ⌘-click jumps straight to the chart.
+            .onTapGesture {
+                if NSEvent.modifierFlags.contains(.command) {
+                    NSWorkspace.shared.open(store.chartURL(item))
+                } else {
+                    withAnimation(.easeOut(duration: 0.15)) { expanded = isOpen ? nil : item.id }
+                }
+            }
+            .help("Click for details · ⌘-click to open the chart")
 
             if isOpen {
                 RowDetail(item: item)
@@ -127,19 +129,23 @@ struct WatchRow: View {
                     .disabled(store.config.watchlist.last?.id == item.id)
                 Divider()
             }
-            Button("Open on Binance") { NSWorkspace.shared.open(store.chartURL(item, site: .binance)) }
-            Button("Open on TradingView") { NSWorkspace.shared.open(store.chartURL(item, site: .tradingview)) }
+            if item.market == .dex {
+                Button("Open on DexScreener") { NSWorkspace.shared.open(store.chartURL(item)) }
+            } else {
+                Button("Open on Binance") { NSWorkspace.shared.open(store.chartURL(item, site: .binance)) }
+                Button("Open on TradingView") { NSWorkspace.shared.open(store.chartURL(item, site: .tradingview)) }
+            }
             Divider()
             Button(item.inMenuBar ? "Hide from menu bar" : "Show in menu bar") {
                 store.edit(item.id) { $0.inMenuBar.toggle() }
             }
-            Button("Remove from watchlist", role: .destructive) { store.toggleWatch(item.market, item.base) }
+            Button("Remove from watchlist", role: .destructive) { store.remove(item.id) }
         }
     }
 
     private var subtitle: String {
         if !store.isListed(item) { return "Not listed on Binance \(item.market.label.lowercased())" }
-        let name = store.name(item.base)
+        let name = store.displayName(item)
         if let v = store.holdingsValue(item) {
             return "\(Fmt.qty(item.holdings)) = \(Fmt.money(v, store.currency))"
         }
@@ -157,6 +163,9 @@ struct RowDetail: View {
         let fx = store.fxRate
         let cur = store.currency
         VStack(alignment: .leading, spacing: 10) {
+            if item.market == .dex {
+                dexStats(t)
+            } else {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
                 GridRow {
                     stat("Pair", inst.symbol)
@@ -176,6 +185,7 @@ struct RowDetail: View {
                     }
                 }
             }
+            }
             if let t {
                 Text("Last tick \(Fmt.ago(t.updated, now: store.clock))").font(.system(size: 10.5)).foregroundStyle(.tertiary)
             }
@@ -191,6 +201,19 @@ struct RowDetail: View {
                 if let v = store.holdingsValue(item) { Text(Fmt.money(v, cur)).monospacedDigit() }
             }
 
+            HStack(spacing: 6) {
+                Text("Decimals").frame(width: 62, alignment: .leading)
+                Picker("", selection: Binding(get: { item.decimals ?? -1 },
+                                              set: { v in store.edit(item.id) { $0.decimals = v < 0 ? nil : v } })) {
+                    Text("Auto").tag(-1)
+                    ForEach(0...8, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                if let t {
+                    Text(Fmt.price(t.price * fx, cur, decimals: item.decimals)).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+
             Text("Alerts").font(.system(size: 11.5, weight: .semibold))
             AlertForm(fixedItemID: item.id)
             ForEach(store.config.alerts.filter { $0.itemID == item.id }) { a in
@@ -198,14 +221,36 @@ struct RowDetail: View {
             }
 
             HStack {
-                Button("Binance") { NSWorkspace.shared.open(store.chartURL(item, site: .binance)) }
-                Button("TradingView") { NSWorkspace.shared.open(store.chartURL(item, site: .tradingview)) }
+                if item.market == .dex {
+                    Button("DexScreener") { NSWorkspace.shared.open(store.chartURL(item)) }
+                } else {
+                    Button("Binance") { NSWorkspace.shared.open(store.chartURL(item, site: .binance)) }
+                    Button("TradingView") { NSWorkspace.shared.open(store.chartURL(item, site: .tradingview)) }
+                }
                 Spacer()
-                Button("Remove", role: .destructive) { store.toggleWatch(item.market, item.base) }
+                Button("Remove", role: .destructive) { store.remove(item.id) }
             }
             .controlSize(.small)
         }
         .font(.system(size: 11.5))
+    }
+
+    @ViewBuilder private func dexStats(_ t: Ticker?) -> some View {
+        let fx = store.fxRate, cur = store.currency
+        let p = store.dexInfo[store.instrument(for: item).key]
+        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
+            GridRow {
+                stat("Pool", "\(item.base)/\(item.quoteSymbol ?? "?")")
+                stat("Exchange", "\(item.dexName ?? "?") · \(item.chain ?? "?")")
+                stat("Liquidity", p.map { cur.symbol + Fmt.short($0.liquidity * fx) } ?? "–")
+            }
+            GridRow {
+                stat("24h vol", t.map { cur.symbol + Fmt.short($0.quoteVolume * fx) } ?? "–")
+                stat("1h", Fmt.pct(store.change(item, window: .h1), digits: 2))
+                stat("24h", Fmt.pct(store.change(item, window: .h24), digits: 2))
+            }
+        }
+        Text("DEX price via DexScreener, refreshed every ~6s").font(.system(size: 10.5)).foregroundStyle(.tertiary)
     }
 
     private func stat(_ label: String, _ value: String) -> some View {
