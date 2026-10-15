@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.1.1}"
+VERSION="${VERSION:-1.1.2}"
 BUNDLE_ID="app.tickbar.TickBar"
 APP="dist/TickBar.app"
 
@@ -61,13 +61,13 @@ else
 fi
 codesign --verify --strict --verbose=1 "$APP"
 
-ditto -c -k --keepParent "$APP" dist/TickBar.zip
+ditto -c -k --norsrc --noextattr --noacl --keepParent "$APP" dist/TickBar.zip
 
 if [[ -n "${NOTARY_PROFILE:-}" && -n "${SIGN_IDENTITY:-}" ]]; then
   echo "→ Notarizing"
   xcrun notarytool submit dist/TickBar.zip --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$APP"
-  rm dist/TickBar.zip && ditto -c -k --keepParent "$APP" dist/TickBar.zip
+  rm dist/TickBar.zip && ditto -c -k --norsrc --noextattr --noacl --keepParent "$APP" dist/TickBar.zip
   spctl --assess --type execute --verbose "$APP"
 fi
 

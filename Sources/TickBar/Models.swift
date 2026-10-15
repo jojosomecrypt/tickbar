@@ -189,11 +189,11 @@ enum BarFont: String, Codable, CaseIterable {
 struct Config: Codable, Equatable {
     var watchlist: [WatchItem] = [
         WatchItem(market: .spot, base: "BTC", inMenuBar: true),
-        WatchItem(market: .spot, base: "ETH"),
-        WatchItem(market: .spot, base: "SOL"),
+        WatchItem(market: .spot, base: "ETH", inMenuBar: true),
+        WatchItem(market: .spot, base: "SOL", inMenuBar: true),
         WatchItem(market: .spot, base: "BNB"),
-        WatchItem(market: .spot, base: "HYPE", inMenuBar: true),
-        WatchItem(market: .spot, base: "EDEN", inMenuBar: true),
+        WatchItem(market: .spot, base: "XRP"),
+        WatchItem(market: .spot, base: "DOGE"),
     ]
     // Data
     var quote = "USDT"
