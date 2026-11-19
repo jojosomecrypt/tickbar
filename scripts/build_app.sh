@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.1.2}"
+VERSION="${VERSION:-1.1.3}"
 BUNDLE_ID="app.tickbar.TickBar"
 APP="dist/TickBar.app"
 

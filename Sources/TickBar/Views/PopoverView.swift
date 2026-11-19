@@ -9,9 +9,11 @@ struct PopoverView: View {
     @Environment(Store.self) private var store
     @State private var tab: Tab
     private let expanded: String?
+    /// The panel's content is rebuilt on every open; this keeps the last tab across opens.
+    @MainActor private static var lastTab: Tab = .watchlist
 
-    init(tab: Tab = .watchlist, expanded: String? = nil) {
-        _tab = State(initialValue: tab)
+    init(tab: Tab? = nil, expanded: String? = nil) {
+        _tab = State(initialValue: tab ?? Self.lastTab)
         self.expanded = expanded
     }
 
@@ -22,6 +24,7 @@ struct PopoverView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .onChange(of: tab) { Self.lastTab = tab }
             .padding(10)
 
             Divider()

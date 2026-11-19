@@ -47,6 +47,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         let visible = screen.visibleFrame
         let x = min(max(anchor.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
         let y = min(anchor.minY, visible.maxY) - size.height - 4
+        panel.attachContent()
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
@@ -59,6 +60,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
     private func hide() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
+        panel.detachContent()
         item.button?.highlight(false)
         lastHide = Date()
         if let m = clickMonitor { NSEvent.removeMonitor(m) }
@@ -182,8 +184,14 @@ final class StatusBarController: NSObject, NSWindowDelegate {
 }
 
 /// Borderless floating panel styled like a popover (rounded, translucent material).
+/// The SwiftUI content only exists while the panel is open: a hosted view that stays
+/// attached while hidden keeps re-rendering on every tick (~15% CPU for nothing).
 final class DropdownPanel: NSPanel {
-    init<V: View>(content: V, size: NSSize) {
+    private let makeHost: () -> NSView
+    private var host: NSView?
+
+    init<V: View>(content: @escaping @autoclosure () -> V, size: NSSize) {
+        makeHost = { NSHostingView(rootView: content()) }
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: true)
         isFloatingPanel = true
@@ -204,11 +212,21 @@ final class DropdownPanel: NSPanel {
         effect.layer?.borderWidth = 0.5
         effect.layer?.borderColor = NSColor.separatorColor.cgColor
 
-        let host = NSHostingView(rootView: content)
-        host.frame = effect.bounds
-        host.autoresizingMask = [.width, .height]
-        effect.addSubview(host)
         contentView = effect
+    }
+
+    func attachContent() {
+        guard host == nil, let effect = contentView else { return }
+        let view = makeHost()
+        view.frame = effect.bounds
+        view.autoresizingMask = [.width, .height]
+        effect.addSubview(view)
+        host = view
+    }
+
+    func detachContent() {
+        host?.removeFromSuperview()
+        host = nil
     }
 
     override var canBecomeKey: Bool { true }
@@ -216,5 +234,6 @@ final class DropdownPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { // Esc closes
         resignKey()
         orderOut(nil)
+        detachContent()
     }
 }
